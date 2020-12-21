@@ -3,11 +3,14 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <liburing.h>
+#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/poll.h>
 #include <time.h>
 #include <sys/time.h>
 #include <stdint.h>
@@ -46,9 +49,7 @@ static void add_provide_buf(int bid);
 
 void sigint_handler(int signo) {
     printf("^C pressed. Shutting down.\n");
-    for(int i = 0 ; i < PoolLength ; i++)
-        free(&pool_ptr[i]);
-    
+    free(pool_ptr);
     io_uring_queue_exit(&ring);
     exit(1);
 }
@@ -155,12 +156,14 @@ void init_ring()
 }
 
 void io_uring_loop() {
-    printf("server start : \n");
     while(1)
     {
         struct io_uring_cqe *cqe ;
         unsigned head;
         unsigned count = 0;
+
+        //io_uring_submit(&ring);
+        //io_uring_wait_cqe(&ring, &cqe);
 
         io_uring_for_each_cqe(&ring, head, cqe){
             ++count;
@@ -372,18 +375,12 @@ void add_accept_request(int sockfd, http_request_t *request)
     struct io_uring_sqe *sqe = io_uring_get_sqe(&ring) ;
     struct sockaddr_in client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
-
     io_uring_prep_accept(sqe, sockfd, (struct sockaddr*)&client_addr, &client_addr_len, 0);
-
     request->event_type = accept ;
     request->fd = sockfd ;
-
     io_uring_sqe_set_data(sqe, request);
-    io_uring_sqe_set_flags(sqe, 0);
-
     io_uring_submit(&ring);
 }
-
 
 static void add_read_request(http_request_t *request)
 {
@@ -404,7 +401,6 @@ static void add_read_request(http_request_t *request)
     assert(timeout_req && "malloc fault");
     timeout_req->event_type = uring_timer ;
     io_uring_sqe_set_data(sqe, timeout_req);
-    
     io_uring_submit(&ring);
 }
 
@@ -429,7 +425,6 @@ static void add_write_request(int fd, void *usrbuf, size_t n, http_request_t *r)
     assert(timeout_req && "malloc fault");
     timeout_req->event_type = uring_timer ;
     io_uring_sqe_set_data(sqe, timeout_req);
-
     io_uring_submit(&ring);
 }
 
@@ -439,9 +434,7 @@ static void add_provide_buf(int bid) {
     http_request_t *req = get_request();
     assert(req && "malloc fault");
     req->event_type = prov_buf ;
-
     io_uring_sqe_set_data(sqe, req);
-
     io_uring_submit(&ring);
 }
 
