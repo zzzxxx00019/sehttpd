@@ -12,9 +12,10 @@ int init_memorypool() {
     {
         if(! &pool_ptr[i])
         {
-            printf("Memory %d calloc fai\n",i);
+            printf("Memory %d calloc fail\n",i);
             exit(1);
         }
+        (&pool_ptr[i])->pool_id = i ;
     }
     return 0;
 }
@@ -32,7 +33,6 @@ http_request_t *get_request() {
             if (!((bitset >> k) & 0x1)) {
                 bitmap[i] ^= (0x1 << k);
                 pos = 32*i + k;
-                (&pool_ptr[pos])->pool_id = pos;
                 return &pool_ptr[pos];
             }
         }
