@@ -12,10 +12,19 @@
 
 #include "http.h"
 #include "logger.h"
+#include "timer.h"
+#include "uring.h"
+#include "memory_pool.h"
 
+/* the length of the struct epoll_events array pointed to by *events */
+#define MAXEVENTS 1024
 #define LISTENQ 1024
-#define PORT 8081
-#define WEBROOT "./www"
+
+#define accept 0
+#define read 1
+#define write 2
+#define prov_buf 3
+#define uring_timer 4
 
 static int open_listenfd(int port)
 {
@@ -46,24 +55,79 @@ static int open_listenfd(int port)
 
     return listenfd;
 }
-
 /* TODO: use command line options to specify */
+#define PORT 8081
+#define WEBROOT "./www"
+
 int main()
 {
-    
-    signal(SIGINT, sigint_handler);
-
     int listenfd = open_listenfd(PORT);
-    assert(listen >= 0 && "open_listenfd");
+    init_memorypool();
+    init_io_uring();
+    struct io_uring *ring = get_ring();
 
-    init_ring();
-    int ret = init_memorypool();
-    assert(ret == 0 && "memory pool calloc");
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
 
     http_request_t *req = get_request();
+    add_accept(ring, listenfd, (struct sockaddr *)&client_addr, &client_len, req);
     
-    add_accept_request(listenfd, req);    
-    io_uring_loop();
+    while(1)
+    {
+        submit_and_wait();
+        struct io_uring_cqe *cqe ;
+        unsigned head;
+        unsigned count=0;
+        io_uring_for_each_cqe(ring, head, cqe) {
+            ++count ;
+            http_request_t *cqe_req = io_uring_cqe_get_data(cqe);
+            int type = cqe_req->event_type;
+            printf("event type = %d\n",type);
+             
+            if(type == accept){
+                add_accept(ring, listenfd, (struct sockaddr *)&client_addr, &client_len, cqe_req);
+                
+                int clientfd = cqe->res ;
+                if(clientfd >= 0){
+                    http_request_t *request = get_request() ;
+                    init_http_request(request, clientfd, WEBROOT);
+                    add_read_request(request);
+                }     
+            }
+            else if(type == read) {
+                int read_bytes = cqe->res ;
+                if ( read_bytes <= 0 ) {
+                    int ret = http_close_conn(cqe_req);
+                    assert(ret==0 && "http_close_conn");
+                }
+                else {
+                    cqe_req->bid = ( cqe->flags >> IORING_CQE_BUFFER_SHIFT );
+                    do_request(cqe_req, read_bytes);
+                    //char *buf = get_bufs(cqe_req->bid);
+                    //add_write_request(buf, cqe_req); 
+                }
+            }
+            else if(type == write) {
+                add_provide_buf(cqe_req->bid);
+                int write_bytes = cqe->res ;
+                if(write_bytes <= 0 ) {
+                    int ret = http_close_conn(cqe_req);
+                    assert(ret==0 && "http_close_conn");
+                }
+                else {
+                    add_read_request(cqe_req);
+                }
+            }
+            else if(type == prov_buf) {
+                free_request(cqe_req);
+            }
+            else if(type == uring_timer) {
+                free_request(cqe_req);
+            }
+        }
+        uring_cq_advance(count);
+    }
+    uring_queue_exit();
     
     return 0;
 }

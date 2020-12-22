@@ -3,102 +3,41 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
+#include <sys/epoll.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <liburing.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <sys/poll.h>
-#include <time.h>
-#include <sys/time.h>
-#include <stdint.h>
 
 #include "http.h"
 #include "logger.h"
+#include "timer.h"
+#include "uring.h"
 
-#define Queue_Depth 2048
 #define MAXLINE 8192
 #define SHORTLINE 512
-#define WEBROOT "./www"
-#define TIMEOUT_MSEC 500
 
-#define accept 0
-#define read 1
-#define write 2
-#define prov_buf 3
-#define uring_timer 4
+#ifndef MIN
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#endif
 
-#define MAX_CONNECTIONS 2048
-#define MAX_MESSAGE_LEN 8192
-char bufs[MAX_CONNECTIONS][MAX_MESSAGE_LEN] = {0};
-int group_id = 8888;
-
-struct io_uring ring;
-
-#define PoolLength Queue_Depth
-#define BitmapSize PoolLength/32
-uint32_t bitmap[BitmapSize];
-http_request_t *pool_ptr;
-
-
-static void add_read_request(http_request_t *request);
-static void add_write_request(int fd, void *usrbuf, size_t n, http_request_t *r);
-static void add_provide_buf(int bid);
-
-void sigint_handler(int signo) {
-    printf("^C pressed. Shutting down.\n");
-    free(pool_ptr);
-    io_uring_queue_exit(&ring);
-    exit(1);
-}
-
-static void msec_to_ts(struct __kernel_timespec *ts, unsigned int msec)
+static ssize_t writen(int fd, void *usrbuf, size_t n)
 {
-	ts->tv_sec = msec / 1000;
-	ts->tv_nsec = (msec % 1000) * 1000000;
-}
+    ssize_t nwritten;
+    char *bufp = usrbuf;
 
-int init_memorypool() {
-    pool_ptr = calloc(PoolLength ,sizeof(http_request_t));
-    for (int i=0 ; i <PoolLength ; i++)
-    {
-        if(! &pool_ptr[i])
-        {
-            printf("Memory %d calloc fai\n",i);
-            exit(1);
-        }
-    }
-    return 0;
-}
-
-http_request_t *get_request() {
-    int pos;
-    uint32_t bitset ;
-
-    for (int i = 0 ; i < BitmapSize ; i++) {
-        bitset = bitmap[i];
-        if(!(bitset ^ 0xffffffff))
-            continue;
-        
-        for(int k = 0 ; k < 32 ; k++) {      
-            if (!((bitset >> k) & 0x1)) {
-                bitmap[i] ^= (0x1 << k);
-                pos = 32*i + k;
-                (&pool_ptr[pos])->pool_id = pos;
-                return &pool_ptr[pos];
+    for (size_t nleft = n; nleft > 0; nleft -= nwritten) {
+        if ((nwritten = write(fd, bufp, nleft)) <= 0) {
+            if (errno == EINTR) /* interrupted by sig handler return */
+                nwritten = 0;   /* and call write() again */
+            else {
+                log_err("errno == %d\n", errno);
+                return -1; /* errrno set by write() */
             }
         }
+        bufp += nwritten;
     }
-    return NULL;
-}
 
-int free_request(http_request_t *req)
-{
-    int pos = req->pool_id;
-    bitmap[pos/32] ^= (0x1 << (pos%32));
-    return 0;
+    return n;
 }
 
 static char *webroot = NULL;
@@ -118,106 +57,6 @@ static mime_type_t mime[] = {{".html", "text/html"},
                              {".jpg", "image/jpeg"},
                              {".css", "text/css"},
                              {NULL, "text/plain"}};
-
-void init_ring()
-{
-    struct io_uring_params params;
-    memset(&params, 0, sizeof(params));
-
-    int ret = io_uring_queue_init_params(Queue_Depth, &ring, &params);
-    assert(ret >= 0 && "io_uring_queue_init");
-    
-    if (!(params.features & IORING_FEAT_FAST_POLL)) {
-        printf("IORING_FEAT_FAST_POLL not available in the kernel, quiting...\n");
-        exit(0);
-    }
-    
-    struct io_uring_probe *probe;
-    probe = io_uring_get_probe_ring(&ring);
-    if (!probe || !io_uring_opcode_supported(probe, IORING_OP_PROVIDE_BUFFERS)) {
-        printf("Buffer select not supported, skipping...\n");
-        exit(0);
-    }
-    free(probe);
-
-    struct io_uring_sqe *sqe;
-    struct io_uring_cqe *cqe;
-
-    sqe = io_uring_get_sqe(&ring);
-    io_uring_prep_provide_buffers(sqe, bufs, MAX_MESSAGE_LEN, MAX_CONNECTIONS, group_id, 0);
-
-    io_uring_submit(&ring);
-    io_uring_wait_cqe(&ring, &cqe);
-    if (cqe->res < 0) {
-        printf("cqe->res = %d\n", cqe->res);
-        exit(1);
-    }
-    io_uring_cqe_seen(&ring, cqe);
-}
-
-void io_uring_loop() {
-    while(1)
-    {
-        struct io_uring_cqe *cqe ;
-        unsigned head;
-        unsigned count = 0;
-
-        //io_uring_submit(&ring);
-        //io_uring_wait_cqe(&ring, &cqe);
-
-        io_uring_for_each_cqe(&ring, head, cqe){
-            ++count;
-            http_request_t *req = io_uring_cqe_get_data(cqe);
-            int type = req->event_type ;
-            printf("event type = %d\n",type);
-            if ( type == accept ) {
-                add_accept_request(req->fd, req);
-                if (&(cqe->res)) {
-                    int fd = cqe->res;
-                    if (fd >= 0) {
-                        http_request_t *request = get_request();
-                        assert(request && "request memory malloc fault");
-                        init_http_request(request, fd, WEBROOT);
-                        add_read_request(request);
-                    }
-                }
-            }
-
-            else if ( type == read ) {
-                int len = cqe->res ;
-                if(len <= 0) { 
-                    http_close_conn(req);
-                }
-                else {
-                    req->bid = ( cqe->flags >> IORING_CQE_BUFFER_SHIFT );
-                    int len = cqe->res;
-                    handle_request(req, len);
-                }
-            }
-
-            else if ( type == write ) {
-                add_provide_buf(req->bid);
-                int len = cqe->res ;
-                if(len <= 0) {
-                    printf("write err close conn\n");
-                    http_close_conn(req);
-                }
-                else
-                    add_read_request(req);
-            }
-
-            else if ( type == prov_buf ) {
-                assert( req->res < 0 && "Provide buffer error" );
-                free_request(req);
-            }
-
-            else if ( type == uring_timer ) {
-                free_request(req);
-            }
-        }
-        io_uring_cq_advance(&ring, count);
-    }
-}
 
 static void parse_uri(char *uri, int uri_length, char *filename)
 {
@@ -283,8 +122,9 @@ static void do_error(int fd,
             "Content-length: %d\r\n\r\n",
             errnum, shortmsg, (int) strlen(body));
 
-    add_write_request(fd, header, strlen(header), r);
-    add_write_request(fd, body, strlen(body), r);
+    add_write_request(header, r);
+    add_write_request(body, r);
+    
 }
 
 static const char *get_file_type(const char *type)
@@ -331,7 +171,7 @@ static void serve_static(int fd,
     if (out->keep_alive) {
         sprintf(header, "%sConnection: keep-alive\r\n", header);
         sprintf(header, "%sKeep-Alive: timeout=%d\r\n", header,
-                TIMEOUT_MSEC);
+                TIMEOUT_DEFAULT);
     }
 
     if (out->modified) {
@@ -347,17 +187,16 @@ static void serve_static(int fd,
     sprintf(header, "%sServer: seHTTPd\r\n", header);
     sprintf(header, "%s\r\n", header);
 
-    add_write_request(fd, header, strlen(header), r);
+    add_write_request(header, r);
 
     if (!out->modified)
         return;
 
     int srcfd = open(filename, O_RDONLY, 0);
     assert(srcfd > 2 && "open error");
-
+    /* TODO: use sendfile(2) for zero-copy support */
     int n = sendfile(fd, srcfd, 0, filesize);
     assert(n == filesize && "sendfile");
-
     close(srcfd);
 }
 
@@ -370,75 +209,7 @@ static inline int init_http_out(http_out_t *o, int fd)
     return 0;
 }
 
-void add_accept_request(int sockfd, http_request_t *request)
-{
-    struct io_uring_sqe *sqe = io_uring_get_sqe(&ring) ;
-    struct sockaddr_in client_addr;
-    socklen_t client_addr_len = sizeof(client_addr);
-    io_uring_prep_accept(sqe, sockfd, (struct sockaddr*)&client_addr, &client_addr_len, 0);
-    request->event_type = accept ;
-    request->fd = sockfd ;
-    io_uring_sqe_set_data(sqe, request);
-    io_uring_submit(&ring);
-}
-
-static void add_read_request(http_request_t *request)
-{
-    int clientfd = request->fd ;
-    struct io_uring_sqe *sqe = io_uring_get_sqe(&ring) ;
-    io_uring_prep_recv(sqe, clientfd, NULL, MAX_MESSAGE_LEN, 0);
-    io_uring_sqe_set_flags(sqe, (IOSQE_BUFFER_SELECT | IOSQE_IO_LINK) );
-    sqe->buf_group = group_id;
-
-    request->event_type = read ;
-    io_uring_sqe_set_data(sqe, request);
-
-    struct __kernel_timespec ts;
-    msec_to_ts(&ts, TIMEOUT_MSEC);
-    sqe = io_uring_get_sqe(&ring);
-    io_uring_prep_link_timeout(sqe, &ts, 0);
-    http_request_t *timeout_req = get_request();
-    assert(timeout_req && "malloc fault");
-    timeout_req->event_type = uring_timer ;
-    io_uring_sqe_set_data(sqe, timeout_req);
-    io_uring_submit(&ring);
-}
-
-static void add_write_request(int fd, void *usrbuf, size_t n, http_request_t *r)
-{
-    char *bufp = usrbuf;
-
-    struct io_uring_sqe *sqe = io_uring_get_sqe(&ring) ;
-    http_request_t *request = r;
-    request->event_type = write ;
-    unsigned long len = strlen(bufp);
-
-    io_uring_prep_send(sqe, fd, bufp, len, 0);
-    io_uring_sqe_set_flags(sqe, IOSQE_IO_LINK);
-    io_uring_sqe_set_data(sqe, request);
-
-    struct __kernel_timespec ts;
-    msec_to_ts(&ts, 1000);
-    sqe = io_uring_get_sqe(&ring);
-    io_uring_prep_link_timeout(sqe, &ts, 0);
-    http_request_t *timeout_req = get_request();
-    assert(timeout_req && "malloc fault");
-    timeout_req->event_type = uring_timer ;
-    io_uring_sqe_set_data(sqe, timeout_req);
-    io_uring_submit(&ring);
-}
-
-static void add_provide_buf(int bid) {
-    struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
-    io_uring_prep_provide_buffers(sqe, bufs[bid], MAX_MESSAGE_LEN, 1, group_id, bid);
-    http_request_t *req = get_request();
-    assert(req && "malloc fault");
-    req->event_type = prov_buf ;
-    io_uring_sqe_set_data(sqe, req);
-    io_uring_submit(&ring);
-}
-
-void handle_request(void *ptr, int n)
+void do_request(void *ptr, int n)
 {
     http_request_t *r = ptr;
     int fd = r->fd ;
@@ -446,10 +217,7 @@ void handle_request(void *ptr, int n)
     char filename[SHORTLINE];
     webroot = r->root;
 
-    //clock_t t1, t2;
-    //t1 = clock();
-
-    r->buf = &bufs[r->bid];
+    r->buf = get_bufs(r->bid);
     r->pos = 0;
     r->last = n;
 
@@ -481,9 +249,5 @@ void handle_request(void *ptr, int n)
 
     serve_static(fd, filename, sbuf.st_size, out, r); 
     free(out);
-
-    //t2 = clock();
-    //printf("%lf\n", (t2-t1)/(double)(CLOCKS_PER_SEC);
-    return ;
+    return ;    
 }
-

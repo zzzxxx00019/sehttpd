@@ -2,12 +2,12 @@
 #define _GNU_SOURCE /* for the sake of strptime(3) */
 #endif
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "http.h"
-
 
 int http_close_conn(http_request_t *r)
 {
@@ -19,7 +19,6 @@ int http_close_conn(http_request_t *r)
      */
     close(r->fd);
     free_request(r);
-
     return 0;
 }
 
@@ -41,14 +40,6 @@ static int http_process_connection(http_request_t *r UNUSED,
     return 0;
 }
 
-
-void absf(double *x) {
-    int a = 0x1;
-    char little_end = *((char *) &a);
-    *(((int *) x) + little_end) &= 0x7fffffff;
-}
-
-
 static int http_process_if_modified_since(http_request_t *r UNUSED,
                                           http_out_t *out,
                                           char *data,
@@ -60,8 +51,8 @@ static int http_process_if_modified_since(http_request_t *r UNUSED,
 
     time_t client_time = mktime(&tm);
     double time_diff = difftime(out->mtime, client_time);
-    absf(&time_diff);
-    if (time_diff < 1e-6) { /* Not modified */
+    /* TODO: use custom absolute value function rather without libm */
+    if (fabs(time_diff) < 1e-6) { /* Not modified */
         out->modified = false;
         out->status = HTTP_NOT_MODIFIED;
     }
