@@ -28,7 +28,6 @@ OBJS = \
     src/http.o \
     src/http_parser.o \
     src/http_request.o \
-    src/timer.o \
     src/mainloop.o
 deps += $(OBJS:%.o=%.o.d)
 
