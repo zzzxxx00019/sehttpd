@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "http.h"
+#include "memory_pool.h"
 
 int http_close_conn(http_request_t *r)
 {
