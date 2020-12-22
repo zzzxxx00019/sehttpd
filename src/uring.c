@@ -14,7 +14,6 @@
 #define uring_timer 4
 
 #define TIMEOUT_MSEC 500
-#define Queue_Depth 4096
 #define MAX_CONNECTIONS 2048
 #define MAX_MESSAGE_LEN 8192
 char bufs[MAX_CONNECTIONS][MAX_MESSAGE_LEN] = {0};
@@ -30,6 +29,8 @@ static void msec_to_ts(struct __kernel_timespec *ts, unsigned int msec)
 
 void init_io_uring()
 {
+    printf("Queue_Depth = %d\n",Queue_Depth);
+
     struct io_uring_params params;
     memset(&params, 0, sizeof(params));
 

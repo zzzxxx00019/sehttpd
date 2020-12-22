@@ -1,10 +1,11 @@
 #include "http.h"
 #include "memory_pool.h"
 
+#define Queue_Depth 4096
+
 struct io_uring *get_ring();
 void init_io_uring();
 void submit_and_wait();
-//void add_accept_request(int sockfd, http_request_t *request);
 void add_read_request(http_request_t *request);
 void add_accept(struct io_uring *ring, int fd, struct sockaddr *client_addr, socklen_t *client_len, http_request_t *req);
 void add_write_request(void *usrbuf, http_request_t *r);
