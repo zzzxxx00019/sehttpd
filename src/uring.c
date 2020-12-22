@@ -14,7 +14,7 @@
 #define uring_timer 4
 
 #define TIMEOUT_MSEC 500
-#define Queue_Depth 2048
+#define Queue_Depth 4096
 #define MAX_CONNECTIONS 2048
 #define MAX_MESSAGE_LEN 8192
 char bufs[MAX_CONNECTIONS][MAX_MESSAGE_LEN] = {0};

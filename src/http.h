@@ -45,7 +45,7 @@ typedef struct {
     void *cur_header_key_start, *cur_header_key_end;
     void *cur_header_value_start, *cur_header_value_end;
 
-    void *timer;
+    //void *timer;
     int pool_id;
     int bid;
     int event_type;

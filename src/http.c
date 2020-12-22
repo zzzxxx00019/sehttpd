@@ -3,42 +3,17 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 #include "http.h"
 #include "logger.h"
-#include "timer.h"
 #include "uring.h"
 
 #define MAXLINE 8192
 #define SHORTLINE 512
-
-#ifndef MIN
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#endif
-
-static ssize_t writen(int fd, void *usrbuf, size_t n)
-{
-    ssize_t nwritten;
-    char *bufp = usrbuf;
-
-    for (size_t nleft = n; nleft > 0; nleft -= nwritten) {
-        if ((nwritten = write(fd, bufp, nleft)) <= 0) {
-            if (errno == EINTR) /* interrupted by sig handler return */
-                nwritten = 0;   /* and call write() again */
-            else {
-                log_err("errno == %d\n", errno);
-                return -1; /* errrno set by write() */
-            }
-        }
-        bufp += nwritten;
-    }
-
-    return n;
-}
+#define TIMEOUT_DEFAULT 500
 
 static char *webroot = NULL;
 

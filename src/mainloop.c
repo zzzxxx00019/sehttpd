@@ -5,19 +5,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <liburing.h>
 
 #include "http.h"
 #include "logger.h"
-#include "timer.h"
 #include "uring.h"
 #include "memory_pool.h"
 
 /* the length of the struct epoll_events array pointed to by *events */
-#define MAXEVENTS 1024
+//#define MAXEVENTS 1024
 #define LISTENQ 1024
 
 #define accept 0
@@ -82,7 +80,7 @@ int main()
             ++count ;
             http_request_t *cqe_req = io_uring_cqe_get_data(cqe);
             int type = cqe_req->event_type;
-            printf("event type = %d\n",type);
+            //printf("event type = %d\n",type);
              
             if(type == accept){
                 add_accept(ring, listenfd, (struct sockaddr *)&client_addr, &client_len, cqe_req);
@@ -103,8 +101,6 @@ int main()
                 else {
                     cqe_req->bid = ( cqe->flags >> IORING_CQE_BUFFER_SHIFT );
                     do_request(cqe_req, read_bytes);
-                    //char *buf = get_bufs(cqe_req->bid);
-                    //add_write_request(buf, cqe_req); 
                 }
             }
             else if(type == write) {

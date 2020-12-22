@@ -1,6 +1,6 @@
 #include "memory_pool.h"
 
-#define Queue_Depth 2048
+#define Queue_Depth 4096
 #define PoolLength Queue_Depth
 #define BitmapSize PoolLength/32
 uint32_t bitmap[BitmapSize];
