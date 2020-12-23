@@ -98,12 +98,10 @@ void add_read_request(http_request_t *request)
     msec_to_ts(&ts, TIMEOUT_MSEC);
     sqe = io_uring_get_sqe(&ring);
     io_uring_prep_link_timeout(sqe, &ts, 0);
-    //io_uring_sqe_set_flags(sqe, 0);
     http_request_t *timeout_req = get_request();
     timeout_req->event_type = uring_timer ;
     io_uring_sqe_set_data(sqe, timeout_req);
     io_uring_submit(&ring);
-    //printf("%d\n",n);
 }
 
 void add_write_request(void *usrbuf, http_request_t *r)
@@ -139,7 +137,6 @@ void add_provide_buf(int bid) {
     assert(req && "malloc fault");
     req->event_type = prov_buf ;
     io_uring_sqe_set_data(sqe, req);
-    //io_uring_submit(&ring);
 }
 
 void uring_cq_advance(int count) {
