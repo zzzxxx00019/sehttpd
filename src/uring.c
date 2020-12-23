@@ -7,7 +7,7 @@
 
 #include "uring.h"
 
-#define TIMEOUT_MSEC 1000
+#define TIMEOUT_MSEC 1500
 #define MAX_CONNECTIONS 2048
 #define MAX_MESSAGE_LEN 4096
 char bufs[MAX_CONNECTIONS][MAX_MESSAGE_LEN] = {0};

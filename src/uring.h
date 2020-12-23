@@ -1,7 +1,7 @@
 #include "http.h"
 #include "memory_pool.h"
 
-#define Queue_Depth 4096
+#define Queue_Depth 8192
 
 #define accept 0
 #define read 1
