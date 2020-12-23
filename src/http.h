@@ -45,7 +45,7 @@ typedef struct {
     void *cur_header_key_start, *cur_header_key_end;
     void *cur_header_value_start, *cur_header_value_end;
 
-    //void *timer;
+    // void *timer;
     int pool_id;
     int bid;
     int event_type;
@@ -80,9 +80,7 @@ typedef struct {
 void http_handle_header(http_request_t *r, http_out_t *o);
 int http_close_conn(http_request_t *r);
 
-static inline void init_http_request(http_request_t *r,
-                                     int fd,
-                                     char *root)
+static inline void init_http_request(http_request_t *r, int fd, char *root)
 {
     r->fd = fd;
     r->pos = r->last = 0;

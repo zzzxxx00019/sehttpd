@@ -13,7 +13,7 @@
 
 #define MAXLINE 8192
 #define SHORTLINE 512
-#define TIMEOUT_DEFAULT 500
+#define TIMEOUT_DEFAULT 1000
 
 static char *webroot = NULL;
 
@@ -99,7 +99,6 @@ static void do_error(int fd,
 
     add_write_request(header, r);
     add_write_request(body, r);
-    
 }
 
 static const char *get_file_type(const char *type)
@@ -187,7 +186,7 @@ static inline int init_http_out(http_out_t *o, int fd)
 void do_request(void *ptr, int n)
 {
     http_request_t *r = ptr;
-    int fd = r->fd ;
+    int fd = r->fd;
     int rc;
     char filename[SHORTLINE];
     webroot = r->root;
@@ -199,13 +198,13 @@ void do_request(void *ptr, int n)
     rc = http_parse_request_line(r);
 
     debug("uri = %.*s", (int) (r->uri_end - r->uri_start),
-        (char *) r->uri_start);
+          (char *) r->uri_start);
 
     rc = http_parse_request_body(r);
     http_out_t *out = malloc(sizeof(http_out_t));
     init_http_out(out, fd);
     parse_uri(r->uri_start, r->uri_end - r->uri_start, filename);
-        
+
     struct stat sbuf;
     if (stat(filename, &sbuf) < 0) {
         do_error(fd, filename, "404", "Not Found", "Can't find the file", r);
@@ -219,10 +218,10 @@ void do_request(void *ptr, int n)
     out->mtime = sbuf.st_mtime;
     http_handle_header(r, out);
 
-    if (!out->status) 
+    if (!out->status)
         out->status = HTTP_OK;
 
-    serve_static(fd, filename, sbuf.st_size, out, r); 
+    serve_static(fd, filename, sbuf.st_size, out, r);
     free(out);
-    return ;    
+    return;
 }
