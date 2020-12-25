@@ -117,6 +117,8 @@ int main()
             } else if (type == uring_timer) {
                 free_request(cqe_req);
             }
+            if (count > 4096)
+                break;
         }
         uring_cq_advance(count);
     }
