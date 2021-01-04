@@ -1,7 +1,7 @@
 # seHTTPd
 
 `seHTTPd` implements a small and efficient web server with 1K lines of C code.
-I/O multiplexing is achieved using [epoll](http://man7.org/linux/man-pages/man7/epoll.7.html).
+I/O multiplexing is achieved using [io_uring](https://kernel.dk/io_uring.pdf?source=techstories.org).
 
 ## Features
 
