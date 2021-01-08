@@ -19,7 +19,7 @@ int init_memorypool()
     return 0;
 }
 
-http_request_t *get_request()
+inline http_request_t *get_request()
 {
     int pos;
     uint32_t bitset;
