@@ -222,6 +222,10 @@ void do_request(void *ptr, int n)
         out->status = HTTP_OK;
 
     serve_static(fd, filename, sbuf.st_size, out, r);
+
+    if (!out->keep_alive)
+        r->keep_alive = false;
+
     free(out);
     return;
 }

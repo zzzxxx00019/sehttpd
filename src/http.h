@@ -45,7 +45,7 @@ typedef struct {
     void *cur_header_key_start, *cur_header_key_end;
     void *cur_header_value_start, *cur_header_value_end;
 
-    // void *timer;
+    bool keep_alive;
     int pool_id;
     int bid;
     int event_type;
@@ -86,6 +86,7 @@ static inline void init_http_request(http_request_t *r, int fd, char *root)
     r->pos = r->last = 0;
     r->state = 0;
     r->root = root;
+    r->keep_alive = true;
     INIT_LIST_HEAD(&(r->list));
 }
 

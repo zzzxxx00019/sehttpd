@@ -110,15 +110,19 @@ int main()
                     int ret = http_close_conn(cqe_req);
                     assert(ret == 0 && "http_close_conn");
                 } else {
-                    add_read_request(cqe_req);
+                    if (cqe_req->keep_alive == false)
+                        http_close_conn(cqe_req);
+                    else
+                        add_read_request(cqe_req);
                 }
             } else if (type == prov_buf) {
                 free_request(cqe_req);
             } else if (type == uring_timer) {
                 free_request(cqe_req);
             }
-            if (count > 4096)
+            if (count > 4096) {
                 break;
+            }
         }
         uring_cq_advance(count);
     }
